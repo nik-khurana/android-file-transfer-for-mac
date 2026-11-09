@@ -1,4 +1,4 @@
-# 🤖 Android File Transfer Pro (macOS ➔ All Android Devices)
+# 🤖 Android File Transfer for Mac (Pro)
 
 A high-performance, native macOS application designed for ultra-fast bidirectional file transfers between your Mac and any Android device (**OnePlus, Samsung Galaxy, Google Pixel, Motorola, Xiaomi, Nothing**, etc.).
 
@@ -52,7 +52,7 @@ Android File Transfer Pro.app/
 To recompile and assemble the bundle from source, run:
 
 ```bash
-cd /Users/nikhil/Desktop/android-file-transfer
+cd /Users/nikhil/Desktop/android-file-transfer-for-mac
 ./Scripts/build_bundle.sh
 ```
 
@@ -85,7 +85,7 @@ You have two easy sharing options:
    - Share **`AndroidFileTransferPro.zip`**.
    - The recipient simply unzips it and double-clicks **`Android File Transfer Pro.app`**.
 2. **Option 2 (Full Project Folder)**:
-   - Share the entire **`android-file-transfer`** folder.
+   - Share the entire **`android-file-transfer-for-mac`** folder.
    - The recipient can run `Android File Transfer Pro.app` directly or run `./Scripts/build_bundle.sh` to compile anytime.
 
 > **💡 Note for First Launch on Another Mac (Gatekeeper):**  
