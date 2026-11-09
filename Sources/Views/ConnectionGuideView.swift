@@ -374,3 +374,4 @@ private struct GuideCard<Content: View>: View {
         )
     }
 }
+
