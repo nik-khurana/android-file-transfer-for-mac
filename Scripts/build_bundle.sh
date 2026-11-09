@@ -68,6 +68,7 @@ cp Resources/AppIcon.icns "${RESOURCES_DIR}/AppIcon.icns"
 if [ -d "Resources/platform-tools" ]; then
     echo "📦 Bundling official Google platform-tools (adb)..."
     cp -R Resources/platform-tools "${RESOURCES_DIR}/"
+    chmod +x "${RESOURCES_DIR}/platform-tools/adb" "${RESOURCES_DIR}/platform-tools/"* 2>/dev/null || true
 fi
 
 # Create PkgInfo

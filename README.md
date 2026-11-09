@@ -60,8 +60,39 @@ The script automatically:
 1. Generates `Resources/AppIcon.icns` with all resolutions.
 2. Compiles the Swift codebase with `-O` compiler optimizations.
 3. Assembles the `.app` bundle directory layout.
-4. Applies ad-hoc code-signing (`codesign -s - --force --deep`).
-5. Generates a release archive `AndroidFileTransferPro.zip`.
+4. Bundles official Google `platform-tools` (`adb`) and sets executable permissions.
+5. Applies ad-hoc code-signing (`codesign -s - --force --deep`).
+6. Generates a release archive `AndroidFileTransferPro.zip`.
+
+---
+
+## 🤝 Sharing with Other Macs (Zero Configuration Required)
+
+This application is **100% portable and independent** of your specific Mac:
+
+### Why It Works on Any Mac Without Installing ADB:
+- **Embedded Universal Google Platform Tools**: The application bundle contains Google's official `adb` binary (`arm64` + `x86_64` universal Mach-O). It runs natively on any Apple Silicon (M1/M2/M3/M4) or Intel Mac.
+- **Dynamic Path Detection**: The app dynamically searches:
+  1. Embedded inside `.app/Contents/Resources/platform-tools/adb`
+  2. Sibling folder `Resources/platform-tools/adb` (if sharing the source folder)
+  3. Sibling folder `platform-tools/adb`
+  4. Any existing system-wide ADB installation (`/opt/homebrew`, Android SDK, etc.)
+- **Self-Healing Permissions**: If file permissions are stripped during unzipping, the app automatically repairs executable permissions (`chmod 0755`) on launch.
+
+### How to Share with Friends or Other Computers:
+You have two easy sharing options:
+1. **Option 1 (Easiest — Standalone App Archive)**:
+   - Share **`AndroidFileTransferPro.zip`**.
+   - The recipient simply unzips it and double-clicks **`Android File Transfer Pro.app`**.
+2. **Option 2 (Full Project Folder)**:
+   - Share the entire **`android-file-transfer`** folder.
+   - The recipient can run `Android File Transfer Pro.app` directly or run `./Scripts/build_bundle.sh` to compile anytime.
+
+> **💡 Note for First Launch on Another Mac (Gatekeeper):**  
+> Because the app is ad-hoc signed rather than purchased from the Mac App Store, macOS may show a standard warning *"Apple cannot check it for malicious software"*.  
+> To open it on another Mac:
+> - Simply **right-click (or Control-click)** the app icon and select **Open**, then click **Open**. (Only needed once!)
+> - Or in Terminal, run: `xattr -cr "Android File Transfer Pro.app"`
 
 ---
 

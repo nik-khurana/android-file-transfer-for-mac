@@ -25,18 +25,44 @@ public final class ADBService: ObservableObject {
     
     private var pollTimer: Timer?
     
+    public var adbSourceDescription: String {
+        guard let path = resolvedAdbPath else { return "Not Found" }
+        if path.contains(".app/Contents/Resources") || path.contains("Resources/platform-tools") {
+            return "Built-in Google Platform Tools"
+        } else if path.contains("homebrew") {
+            return "Homebrew (/opt/homebrew)"
+        } else if path.contains("Android/sdk") {
+            return "Android Studio SDK"
+        } else {
+            return "System Path"
+        }
+    }
+    
     private var candidateAdbPaths: [String] {
-        var paths = [
-            "/Users/nikhil/Desktop/android-file-transfer/Resources/platform-tools/adb",
-            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/platform-tools/adb").path,
-            "/opt/homebrew/bin/adb",
-            "/usr/local/bin/adb",
-            NSHomeDirectory() + "/Library/Android/sdk/platform-tools/adb",
-            "/Library/Android/sdk/platform-tools/adb"
-        ]
+        var paths: [String] = []
+        
+        // 1. Embedded inside App Bundle (Primary standalone distribution)
         if let res = Bundle.main.resourceURL {
             paths.append(res.appendingPathComponent("platform-tools/adb").path)
         }
+        paths.append(Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/platform-tools/adb").path)
+        
+        // 2. Sibling / Parent project directories (when sharing the folder or running loose binary)
+        let bundleParent = Bundle.main.bundleURL.deletingLastPathComponent()
+        paths.append(bundleParent.appendingPathComponent("Resources/platform-tools/adb").path)
+        paths.append(bundleParent.appendingPathComponent("platform-tools/adb").path)
+        
+        // 3. Current working directory
+        let cwd = FileManager.default.currentDirectoryPath
+        paths.append(cwd + "/Resources/platform-tools/adb")
+        paths.append(cwd + "/platform-tools/adb")
+        
+        // 4. Standard System and Developer paths
+        paths.append("/opt/homebrew/bin/adb")
+        paths.append("/usr/local/bin/adb")
+        paths.append(NSHomeDirectory() + "/Library/Android/sdk/platform-tools/adb")
+        paths.append("/Library/Android/sdk/platform-tools/adb")
+        
         return paths
     }
     
@@ -46,15 +72,34 @@ public final class ADBService: ObservableObject {
     
     @discardableResult
     public func refreshAdbStatus() -> Bool {
-        if !customAdbPath.isEmpty && FileManager.default.isExecutableFile(atPath: customAdbPath) {
-            resolvedAdbPath = customAdbPath
-            isAdbAvailable = true
+        if !customAdbPath.isEmpty && FileManager.default.fileExists(atPath: customAdbPath) {
+            if !FileManager.default.isExecutableFile(atPath: customAdbPath) {
+                try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: customAdbPath)
+            }
+            if FileManager.default.isExecutableFile(atPath: customAdbPath) {
+                resolvedAdbPath = customAdbPath
+                isAdbAvailable = true
+            }
         } else {
-            resolvedAdbPath = candidateAdbPaths.first(where: { FileManager.default.isExecutableFile(atPath: $0) })
+            resolvedAdbPath = nil
+            for path in candidateAdbPaths {
+                if FileManager.default.fileExists(atPath: path) {
+                    if !FileManager.default.isExecutableFile(atPath: path) {
+                        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+                    }
+                    if FileManager.default.isExecutableFile(atPath: path) {
+                        resolvedAdbPath = path
+                        isAdbAvailable = true
+                        break
+                    }
+                }
+            }
+            
             if resolvedAdbPath == nil {
                 let whichAdb = runSystemCommand("/usr/bin/which", arguments: ["adb"]).trimmingCharacters(in: .whitespacesAndNewlines)
                 if !whichAdb.isEmpty && FileManager.default.isExecutableFile(atPath: whichAdb) {
                     resolvedAdbPath = whichAdb
+                    isAdbAvailable = true
                 }
             }
             isAdbAvailable = (resolvedAdbPath != nil)

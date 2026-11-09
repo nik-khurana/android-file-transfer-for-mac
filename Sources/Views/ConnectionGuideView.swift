@@ -127,67 +127,90 @@ public struct ConnectionGuideView: View {
                     .foregroundColor(.secondary)
                 }
                 
-                // Section 3: ADB Status & Configuration
+                // Section 3: Universal Zero-Setup ADB Engine
                 GuideCard(
-                    icon: "terminal",
+                    icon: "shippingbox.fill",
                     iconColor: .purple,
-                    title: "Mac ADB Tools Configuration",
-                    badge: adbService.isAdbAvailable ? "Configured" : "Action Needed"
+                    title: "Universal Zero-Setup ADB Engine",
+                    badge: adbService.isAdbAvailable ? "Built-in & Ready" : "Standby"
                 ) {
                     VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text("Current ADB Status:")
-                                .font(.system(size: 13, weight: .semibold))
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "checkmark.seal.fill")
+                                .foregroundColor(.green)
+                                .font(.system(size: 18))
                             
-                            HStack(spacing: 4) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Zero Dependencies — Works on Any Mac")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(.primary)
+                                Text("Android File Transfer Pro comes pre-packaged with Google's official **Android Platform Tools (Universal Mach-O binary)** supporting Apple Silicon (M1/M2/M3/M4) and Intel Macs natively. When sharing this app with anyone, they can simply launch it and connect their phone — no Homebrew, Xcode, Android Studio, or command-line setup needed!")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        
+                        Divider().opacity(0.4)
+                        
+                        HStack {
+                            Text("Active ADB Engine:")
+                                .font(.system(size: 12, weight: .semibold))
+                            
+                            HStack(spacing: 5) {
                                 Circle()
                                     .fill(adbService.isAdbAvailable ? Color.green : Color.orange)
                                     .frame(width: 8, height: 8)
-                                Text(adbService.isAdbAvailable ? (adbService.resolvedAdbPath ?? "Installed") : "Not Found in Standard Paths")
-                                    .font(.system(size: 12, design: .monospaced))
+                                Text(adbService.isAdbAvailable ? adbService.adbSourceDescription : "Searching...")
+                                    .font(.system(size: 11, weight: .bold, design: .rounded))
                                     .foregroundColor(adbService.isAdbAvailable ? .green : .orange)
                             }
+                            
+                            Spacer()
+                            
+                            if let path = adbService.resolvedAdbPath {
+                                Text(path)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .frame(maxWidth: 240)
+                            }
                         }
+                        .padding(10)
+                        .background(Color.black.opacity(0.2))
+                        .cornerRadius(8)
                         
-                        if !adbService.isAdbAvailable {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("To install ADB via Homebrew in Terminal, run:")
-                                    .font(.system(size: 12))
+                        // Advanced Custom Path Disclosure for Developers
+                        DisclosureGroup("Advanced: Specify Custom ADB Binary Path") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("If you are an Android developer and want to override the pre-packaged binary with a specific custom SDK:")
+                                    .font(.system(size: 11))
                                     .foregroundColor(.secondary)
                                 
                                 HStack {
-                                    Text("brew install android-platform-tools")
-                                        .font(.system(size: 12, design: .monospaced))
-                                    Spacer()
-                                    Button("Copy") {
-                                        NSPasteboard.general.clearContents()
-                                        NSPasteboard.general.setString("brew install android-platform-tools", forType: .string)
+                                    TextField("/path/to/adb", text: $vm.adbPathInput)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 11, design: .monospaced))
+                                    
+                                    Button("Apply") {
+                                        vm.applyCustomPath()
                                     }
-                                    .buttonStyle(.bordered)
-                                    .font(.system(size: 11))
+                                    .buttonStyle(.borderedProminent)
+                                    
+                                    if !adbService.customAdbPath.isEmpty {
+                                        Button("Reset to Built-in") {
+                                            adbService.customAdbPath = ""
+                                            vm.adbPathInput = ""
+                                            adbService.refreshAdbStatus()
+                                        }
+                                        .buttonStyle(.bordered)
+                                    }
                                 }
-                                .padding(8)
-                                .background(Color.black.opacity(0.3))
-                                .cornerRadius(6)
                             }
+                            .padding(.top, 6)
                         }
-                        
-                        // Custom Path Picker
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Or specify a custom ADB binary path:")
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
-                            
-                            HStack {
-                                TextField("/path/to/adb", text: $vm.adbPathInput)
-                                    .textFieldStyle(.roundedBorder)
-                                
-                                Button("Apply") {
-                                    vm.applyCustomPath()
-                                }
-                                .buttonStyle(.borderedProminent)
-                            }
-                        }
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
                     }
                 }
             }
