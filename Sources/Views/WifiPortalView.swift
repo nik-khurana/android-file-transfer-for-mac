@@ -87,10 +87,12 @@ public struct WifiPortalView: View {
                         
                         // URL & Copy
                         HStack(spacing: 8) {
-                            Text(transferManager.portalURL)
+                            Text(transferManager.displayPortalURL)
                                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
                                 .foregroundColor(.primary)
                                 .lineLimit(1)
+                            
+                            Spacer()
                             
                             Button(action: {
                                 vm.copyURL(url: transferManager.portalURL)
@@ -99,7 +101,7 @@ public struct WifiPortalView: View {
                                     .font(.system(size: 12))
                             }
                             .buttonStyle(.borderless)
-                            .help("Copy URL")
+                            .help("Copy Secured Portal URL")
                             
                             Button(action: {
                                 if let url = URL(string: transferManager.portalURL) {
@@ -116,6 +118,37 @@ public struct WifiPortalView: View {
                         .padding(.vertical, 6)
                         .background(Color.white.opacity(0.06))
                         .cornerRadius(8)
+                        
+                        // Secured Session Pairing Pill
+                        HStack(spacing: 6) {
+                            Image(systemName: "lock.shield.fill")
+                                .foregroundColor(.green)
+                                .font(.system(size: 11))
+                            Text("Secured QR Pairing")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.green)
+                            
+                            Spacer()
+                            
+                            Button(action: {
+                                LocalWebServer.shared.regenerateAuthToken()
+                                vm.generateQR(url: transferManager.portalURL)
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "arrow.triangle.2.circlepath")
+                                        .font(.system(size: 9))
+                                    Text("New Token")
+                                        .font(.system(size: 9, weight: .semibold))
+                                }
+                                .foregroundColor(.cyan)
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Regenerate Session Pairing Token")
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Color.green.opacity(0.12))
+                        .cornerRadius(6)
                         
                         // Chrome HTTPS notice
                         HStack(spacing: 5) {

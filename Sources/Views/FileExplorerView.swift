@@ -33,16 +33,62 @@ public struct FileExplorerView: View {
                         .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if vm.files.isEmpty {
-                emptyFolderView
             } else {
-                fileTableView
+                Group {
+                    if vm.files.isEmpty {
+                        emptyFolderView
+                    } else {
+                        fileTableView
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onDrop(of: ["public.file-url"], isTargeted: $vm.isTargetedForDrop) { providers in
+                    for provider in providers {
+                        _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                            if let fileUrl = url {
+                                DispatchQueue.main.async {
+                                    vm.uploadFile(url: fileUrl, speedTracker: transferManager.speedTracker)
+                                }
+                            }
+                        }
+                    }
+                    return true
+                }
+                .overlay(
+                    Group {
+                        if vm.isTargetedForDrop {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(LinearGradient(colors: [.blue, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 3)
+                                    .background(Color.blue.opacity(0.12))
+                                
+                                VStack(spacing: 10) {
+                                    Image(systemName: "arrow.down.doc.fill")
+                                        .font(.system(size: 48))
+                                        .foregroundColor(.cyan)
+                                    Text("Drop to Upload to \(adbService.connectedDevice.shortName)")
+                                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                                        .foregroundColor(.primary)
+                                    Text("Destination: \(vm.currentPath)")
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(24)
+                                .background(.ultraThinMaterial)
+                                .clipShape(RoundedRectangle(cornerRadius: 16))
+                                .shadow(radius: 12)
+                            }
+                            .padding(12)
+                        }
+                    }
+                )
             }
             
             // Bottom Status Bar
             bottomStatusBar
         }
         .onAppear {
+            adbService.startAutoDetectionLoop()
             if adbService.isDeviceConnected {
                 vm.loadDirectory(path: vm.currentPath)
             } else {
@@ -668,42 +714,6 @@ public struct FileExplorerView: View {
                 contextMenuItems(for: item)
             }
         }
-        .onDrop(of: ["public.file-url"], isTargeted: $vm.isTargetedForDrop) { providers in
-            for provider in providers {
-                _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                    if let fileUrl = url {
-                        DispatchQueue.main.async {
-                            vm.uploadFile(url: fileUrl, speedTracker: transferManager.speedTracker)
-                        }
-                    }
-                }
-            }
-            return true
-        }
-        .overlay(
-            Group {
-                if vm.isTargetedForDrop {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(Color.blue, lineWidth: 3)
-                            .background(Color.blue.opacity(0.12))
-                        
-                        VStack(spacing: 8) {
-                            Image(systemName: "arrow.down.doc.fill")
-                                .font(.system(size: 42))
-                                .foregroundColor(.blue)
-                            Text("Drop to Upload to \(adbService.isDeviceConnected ? adbService.connectedDevice.shortName : "Device")")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(.blue)
-                            Text(vm.currentPath)
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .padding(8)
-                }
-            }
-        )
     }
     
     @ViewBuilder
@@ -752,12 +762,15 @@ public struct FileExplorerView: View {
     }
     
     private var emptyFolderView: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "folder")
-                .font(.system(size: 40))
+        VStack(spacing: 14) {
+            Image(systemName: "folder.badge.plus")
+                .font(.system(size: 46))
                 .foregroundColor(.secondary)
             Text("Folder is empty")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 15, weight: .bold))
+            Text("Drag & drop files here to upload to \(adbService.connectedDevice.shortName)")
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

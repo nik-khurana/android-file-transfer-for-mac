@@ -84,6 +84,7 @@ public final class FileExplorerViewModel: ObservableObject {
     
     public func uploadFile(url: URL, speedTracker: SpeedTracker) {
         statusMessage = "Uploading '\(url.lastPathComponent)' to \(ADBService.shared.connectedDevice.shortName)..."
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
         ADBService.shared.pushFile(localPath: url,
                                    remoteDestination: currentPath,
                                    speedTracker: speedTracker) { [weak self] result in
@@ -92,6 +93,11 @@ public final class FileExplorerViewModel: ObservableObject {
             case .success(let speed):
                 self.statusMessage = String(format: "✅ Uploaded '%@' (%.1f MB/s)", url.lastPathComponent, speed)
                 self.loadDirectory(path: self.currentPath)
+                TransferManager.shared.postTransferNotification(
+                    fileName: url.lastPathComponent,
+                    totalBytes: fileSize,
+                    direction: .writeToPhone
+                )
             case .failure(let err):
                 self.statusMessage = "❌ Upload failed: \(err.localizedDescription)"
             }
@@ -141,6 +147,11 @@ public final class FileExplorerViewModel: ObservableObject {
                 self.statusMessage = String(format: "✅ Saved '%@' to Mac (%.1f MB/s)", fileName, speed)
                 let savedFile = destinationFolder.appendingPathComponent(fileName)
                 NSWorkspace.shared.activateFileViewerSelecting([savedFile])
+                TransferManager.shared.postTransferNotification(
+                    fileName: fileName,
+                    totalBytes: item.size,
+                    direction: .readFromPhone
+                )
             case .failure(let err):
                 self.statusMessage = "❌ Copy failed: \(err.localizedDescription)"
             }
@@ -166,7 +177,8 @@ public final class FileExplorerViewModel: ObservableObject {
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 guard let self = self else { return }
                 guard let adb = ADBService.shared.resolvedAdbPath else { return }
-                _ = ADBService.shared.runSystemCommand(adb, arguments: ["shell", "rm", "-rf", item.path])
+                let escapedPath = "'" + item.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+                _ = ADBService.shared.runSystemCommand(adb, arguments: ["shell", "rm", "-rf", escapedPath])
                 DispatchQueue.main.async {
                     self.statusMessage = "Deleted '\(item.name)'"
                     self.loadDirectory(path: self.currentPath)

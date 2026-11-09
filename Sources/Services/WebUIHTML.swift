@@ -1,7 +1,7 @@
 import Foundation
 
 public enum WebUIHTML {
-    public static func getContent(hostName: String) -> String {
+    public static func getContent(hostName: String, authToken: String = "") -> String {
         return """
 <!DOCTYPE html>
 <html lang="en">
@@ -208,7 +208,18 @@ public enum WebUIHTML {
   </div>
 
 <script>
+  const AUTH_TOKEN = "\(authToken)";
   let selectedFiles = [];
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
 
   function switchTab(tab) {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -247,7 +258,7 @@ public enum WebUIHTML {
       selectedFiles.forEach(f => {
         const div = document.createElement('div');
         div.className = 'tag';
-        div.innerHTML = '<span>' + f.name + '</span><span style="color:#94a3b8">' + formatBytes(f.size) + '</span>';
+        div.innerHTML = '<span>' + escapeHtml(f.name) + '</span><span style="color:#94a3b8">' + formatBytes(f.size) + '</span>';
         list.appendChild(div);
       });
     } else {
@@ -310,7 +321,8 @@ public enum WebUIHTML {
       };
       xhr.onerror = () => reject(new Error('Network error'));
 
-      xhr.open('POST', '/api/upload?name=' + encodeURIComponent(file.name) + '&size=' + file.size, true);
+      xhr.open('POST', '/api/upload?token=' + encodeURIComponent(AUTH_TOKEN) + '&name=' + encodeURIComponent(file.name) + '&size=' + file.size, true);
+      xhr.setRequestHeader('X-Auth-Token', AUTH_TOKEN);
       xhr.send(file);
     });
   }
@@ -318,7 +330,9 @@ public enum WebUIHTML {
   async function loadFileList() {
     const container = document.getElementById('macFilesList');
     try {
-      const res = await fetch('/api/files');
+      const res = await fetch('/api/files?token=' + encodeURIComponent(AUTH_TOKEN), {
+        headers: { 'X-Auth-Token': AUTH_TOKEN }
+      });
       const files = await res.json();
       container.innerHTML = '';
       if (files.length === 0) {
@@ -332,8 +346,8 @@ public enum WebUIHTML {
           <div class="file-info">
             <div class="file-glyph">📄</div>
             <div>
-              <div class="file-name">${f.name}</div>
-              <div class="file-size">${f.formattedSize}</div>
+              <div class="file-name">${escapeHtml(f.name)}</div>
+              <div class="file-size">${escapeHtml(f.formattedSize)}</div>
             </div>
           </div>
           <button class="btn-download" onclick="downloadFile('${encodeURIComponent(f.name)}')">⬇️ Read</button>
@@ -346,7 +360,7 @@ public enum WebUIHTML {
   }
 
   function downloadFile(name) {
-    window.location.href = '/api/download?name=' + name;
+    window.location.href = '/api/download?token=' + encodeURIComponent(AUTH_TOKEN) + '&name=' + name;
   }
 
   async function runBenchmark() {
@@ -362,10 +376,13 @@ public enum WebUIHTML {
     const dummy = new Uint8Array(chunkSize);
     
     const startWrite = Date.now();
-    await fetch('/api/benchmark/upload', {
+    await fetch('/api/benchmark/upload?token=' + encodeURIComponent(AUTH_TOKEN), {
       method: 'POST',
       body: dummy,
-      headers: { 'Content-Length': chunkSize.toString() }
+      headers: {
+        'Content-Length': chunkSize.toString(),
+        'X-Auth-Token': AUTH_TOKEN
+      }
     });
     const writeSec = (Date.now() - startWrite) / 1000;
     const writeMBs = (25 / writeSec).toFixed(1);
@@ -376,7 +393,9 @@ public enum WebUIHTML {
     // 2. Test Read Speed (Mac to Phone) - 25MB
     statusEl.innerText = 'Testing Read Speed (Mac ➔ Phone)...';
     const startRead = Date.now();
-    const res = await fetch('/api/benchmark/download?size=25');
+    const res = await fetch('/api/benchmark/download?token=' + encodeURIComponent(AUTH_TOKEN) + '&size=25', {
+      headers: { 'X-Auth-Token': AUTH_TOKEN }
+    });
     await res.arrayBuffer();
     const readSec = (Date.now() - startRead) / 1000;
     const readMBs = (25 / readSec).toFixed(1);

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UserNotifications
 
 @main
 public struct AndroidFileTransferApp: App {
@@ -51,7 +52,7 @@ public struct AndroidFileTransferApp: App {
     }
 }
 
-public class AppDelegate: NSObject, NSApplicationDelegate {
+public class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         if let icnsPath = Bundle.main.path(forResource: "AppIcon", ofType: "icns"),
@@ -59,6 +60,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.applicationIconImage = img
         }
         NSApp.activate(ignoringOtherApps: true)
+        
+        UNUserNotificationCenter.current().delegate = self
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+    }
+    
+    public func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound])
     }
     
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

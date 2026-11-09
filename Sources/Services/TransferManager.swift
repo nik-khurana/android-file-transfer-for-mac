@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import UserNotifications
 
 public final class TransferManager: ObservableObject {
     public static let shared = TransferManager()
@@ -49,7 +50,28 @@ public final class TransferManager: ObservableObject {
     }
     
     public var portalURL: String {
+        "http://\(localIP):\(LocalWebServer.shared.port)?token=\(LocalWebServer.shared.authToken)"
+    }
+    
+    public var displayPortalURL: String {
         "http://\(localIP):\(LocalWebServer.shared.port)"
+    }
+    
+    public func postTransferNotification(fileName: String, totalBytes: Int64, direction: TransferDirection) {
+        let content = UNMutableNotificationContent()
+        content.title = (direction == .readFromPhone)
+            ? "File Received from Android"
+            : "File Sent to Android"
+        let sizeStr = ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
+        content.body = "\(fileName) (\(sizeStr)) transfer complete."
+        content.sound = .default
+        
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
     }
     
     private func setupServerCallbacks() {
@@ -106,6 +128,7 @@ public final class TransferManager: ObservableObject {
                     )
                     self.transferHistory.insert(item, at: 0)
                 }
+                self.postTransferNotification(fileName: fileName, totalBytes: totalBytes, direction: direction)
             }
         }
     }

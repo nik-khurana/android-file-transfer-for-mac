@@ -8,6 +8,11 @@ public final class LocalWebServer {
     public private(set) var isRunning: Bool = false
     public var sharedDirectory: URL
     public var downloadDirectory: URL
+    public private(set) var authToken: String = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased()
+    
+    public func regenerateAuthToken() {
+        authToken = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased()
+    }
     
     private var serverSocket: Int32 = -1
     private var isListening = false
@@ -181,9 +186,24 @@ public final class LocalWebServer {
         let queryString = pathComponents.count > 1 ? String(pathComponents[1]) : ""
         let queryParams = parseQuery(queryString)
         
+        let isAuth = isRequestAuthenticated(queryParams: queryParams, headers: headers)
+        
         if route == "/" || route == "/index.html" || route.isEmpty {
-            serveWebUI(clientSocket: clientSocket)
-        } else if route == "/api/files" {
+            if isAuth {
+                serveWebUI(clientSocket: clientSocket)
+            } else {
+                serveUnauthorizedNotice(clientSocket: clientSocket)
+            }
+            return
+        }
+        
+        // Require valid QR session pairing token for all API endpoints
+        guard isAuth else {
+            sendResponse(clientSocket: clientSocket, status: "401 Unauthorized", body: "{\"error\":\"Unauthorized: Valid QR pairing token required.\"}")
+            return
+        }
+        
+        if route == "/api/files" {
             serveFileList(clientSocket: clientSocket)
         } else if route == "/api/download" {
             serveFileDownload(clientSocket: clientSocket, queryParams: queryParams, speedTracker: speedTracker)
@@ -198,6 +218,42 @@ public final class LocalWebServer {
         } else {
             sendResponse(clientSocket: clientSocket, status: "404 Not Found", contentType: "text/plain", body: "Not Found")
         }
+    }
+    
+    private func isRequestAuthenticated(queryParams: [String: String], headers: [String: String]) -> Bool {
+        let tokenInQuery = queryParams["token"] ?? ""
+        let tokenInHeader = headers["x-auth-token"] ?? ""
+        return (!authToken.isEmpty) && (tokenInQuery == authToken || tokenInHeader == authToken)
+    }
+    
+    private func serveUnauthorizedNotice(clientSocket: Int32) {
+        let html = """
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>Authentication Required • Android File Transfer</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #090d16; color: #f8fafc; margin: 0; padding: 48px 20px; display: flex; align-items: center; justify-content: center; min-height: 80vh; }
+            .card { max-width: 420px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; padding: 36px 28px; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }
+            .icon { font-size: 48px; margin-bottom: 16px; }
+            h2 { font-size: 20px; font-weight: 700; margin: 0 0 10px 0; color: #38bdf8; }
+            p { font-size: 14px; color: #94a3b8; line-height: 1.6; margin: 0 0 20px 0; }
+            .hint { font-size: 12px; color: #64748b; background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <div class="icon">🔒</div>
+            <h2>QR Pairing Required</h2>
+            <p>This Wi-Fi file transfer session is protected. Please point your phone camera at the QR code displayed on your Mac to connect securely.</p>
+            <div class="hint">The pairing code ensures only your authorized device can access or upload files.</div>
+          </div>
+        </body>
+        </html>
+        """
+        sendResponse(clientSocket: clientSocket, status: "401 Unauthorized", contentType: "text/html; charset=utf-8", body: html)
     }
     
     private func handleOptions(clientSocket: Int32) {
@@ -247,7 +303,7 @@ public final class LocalWebServer {
     }
     
     private func serveWebUI(clientSocket: Int32) {
-        let html = WebUIHTML.getContent(hostName: Host.current().localizedName ?? "Mac")
+        let html = WebUIHTML.getContent(hostName: Host.current().localizedName ?? "Mac", authToken: authToken)
         sendResponse(clientSocket: clientSocket, status: "200 OK", contentType: "text/html; charset=utf-8", body: html)
     }
     
@@ -274,12 +330,32 @@ public final class LocalWebServer {
     }
     
     private func serveFileDownload(clientSocket: Int32, queryParams: [String: String], speedTracker: SpeedTracker) {
-        guard let fileName = queryParams["name"] else {
+        guard let rawFileName = queryParams["name"] else {
             sendResponse(clientSocket: clientSocket, status: "400 Bad Request", body: "Missing file name")
             return
         }
         
-        let fileURL = sharedDirectory.appendingPathComponent(fileName)
+        // Security: Strictly extract the last path component and strip path traversal characters
+        let safeFileName = (rawFileName as NSString).lastPathComponent
+            .replacingOccurrences(of: "/", with: "")
+            .replacingOccurrences(of: "\\", with: "")
+            .replacingOccurrences(of: "\0", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        guard !safeFileName.isEmpty, safeFileName != "." && safeFileName != ".." else {
+            sendResponse(clientSocket: clientSocket, status: "400 Bad Request", body: "Invalid file name")
+            return
+        }
+        
+        let fileURL = sharedDirectory.appendingPathComponent(safeFileName).standardizedFileURL
+        let canonicalShared = sharedDirectory.standardizedFileURL
+        
+        // Canonical Directory Boundary Verification (Path Traversal Protection)
+        guard fileURL.path.hasPrefix(canonicalShared.path) else {
+            sendResponse(clientSocket: clientSocket, status: "403 Forbidden", body: "Access denied: Path traversal detected")
+            return
+        }
+        
         guard FileManager.default.fileExists(atPath: fileURL.path),
               let handle = try? FileHandle(forReadingFrom: fileURL) else {
             sendResponse(clientSocket: clientSocket, status: "404 Not Found", body: "File not found")
@@ -292,7 +368,7 @@ public final class LocalWebServer {
         let header = "HTTP/1.1 200 OK\r\n" +
                      "Content-Type: application/octet-stream\r\n" +
                      "Content-Length: \(fileSize)\r\n" +
-                     "Content-Disposition: attachment; filename=\"\(fileName)\"\r\n" +
+                     "Content-Disposition: attachment; filename=\"\(safeFileName)\"\r\n" +
                      "Access-Control-Allow-Origin: *\r\n" +
                      "Access-Control-Allow-Methods: GET, POST, OPTIONS, HEAD\r\n" +
                      "Access-Control-Allow-Headers: *\r\n" +
@@ -303,7 +379,7 @@ public final class LocalWebServer {
             sendAll(socket: clientSocket, data: headerData)
         }
         
-        speedTracker.startSession(direction: .writeToPhone, totalBytes: fileSize, fileName: fileName)
+        speedTracker.startSession(direction: .writeToPhone, totalBytes: fileSize, fileName: safeFileName)
         
         let chunkSize = 65536
         var transferred: Int64 = 0
@@ -316,11 +392,11 @@ public final class LocalWebServer {
             
             transferred += Int64(data.count)
             speedTracker.recordBytes(Int64(data.count), direction: .writeToPhone)
-            onTransferProgress?(transferred, fileSize, .writeToPhone, fileName)
+            onTransferProgress?(transferred, fileSize, .writeToPhone, safeFileName)
         }
         
         speedTracker.endSession()
-        onTransferCompleted?(fileName, transferred, .writeToPhone)
+        onTransferCompleted?(safeFileName, transferred, .writeToPhone)
     }
     
     private func handleFileUpload(clientSocket: Int32,
@@ -328,14 +404,41 @@ public final class LocalWebServer {
                                   queryParams: [String: String],
                                   initialBodyData: Data,
                                   speedTracker: SpeedTracker) {
-        let fileName = queryParams["name"] ?? "Transfer_\(Int(Date().timeIntervalSince1970)).dat"
+        let rawName = queryParams["name"] ?? "Transfer_\(Int(Date().timeIntervalSince1970)).dat"
+        let safeFileName = (rawName as NSString).lastPathComponent
+            .replacingOccurrences(of: "/", with: "")
+            .replacingOccurrences(of: "\\", with: "")
+            .replacingOccurrences(of: "\0", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        let cleanFileName = (safeFileName.isEmpty || safeFileName == "." || safeFileName == "..")
+            ? "Transfer_\(Int(Date().timeIntervalSince1970)).dat"
+            : safeFileName
+        
         var contentLength = Int64(headers["content-length"] ?? "0") ?? 0
         if contentLength <= 0, let sizeParam = queryParams["size"], let s = Int64(sizeParam) {
             contentLength = s
         }
         
         try? FileManager.default.createDirectory(at: downloadDirectory, withIntermediateDirectories: true)
-        let targetURL = downloadDirectory.appendingPathComponent(fileName)
+        let targetURL = downloadDirectory.appendingPathComponent(cleanFileName).standardizedFileURL
+        let canonicalDownload = downloadDirectory.standardizedFileURL
+        
+        // Canonical Directory Boundary Verification (Path Traversal Protection)
+        guard targetURL.path.hasPrefix(canonicalDownload.path) else {
+            sendResponse(clientSocket: clientSocket, status: "403 Forbidden", body: "Access denied: Path traversal detected")
+            return
+        }
+        
+        // Pre-check free volume capacity (prevent disk space exhaustion DoS)
+        if let values = try? downloadDirectory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]),
+           let freeBytes = values.volumeAvailableCapacityForImportantUsage {
+            let safetyMargin: Int64 = 500 * 1024 * 1024 // 500 MB reserve
+            if contentLength > 0 && contentLength > (freeBytes - safetyMargin) {
+                sendResponse(clientSocket: clientSocket, status: "507 Insufficient Storage", body: "{\"error\":\"Mac storage is low. Free up space before transferring.\"}")
+                return
+            }
+        }
         
         FileManager.default.createFile(atPath: targetURL.path, contents: nil)
         guard let handle = try? FileHandle(forWritingTo: targetURL) else {
@@ -344,7 +447,7 @@ public final class LocalWebServer {
         }
         defer { try? handle.close() }
         
-        speedTracker.startSession(direction: .readFromPhone, totalBytes: contentLength, fileName: fileName)
+        speedTracker.startSession(direction: .readFromPhone, totalBytes: contentLength, fileName: cleanFileName)
         
         var totalReceived: Int64 = 0
         
@@ -352,7 +455,7 @@ public final class LocalWebServer {
             handle.write(initialBodyData)
             totalReceived += Int64(initialBodyData.count)
             speedTracker.recordBytes(Int64(initialBodyData.count), direction: .readFromPhone)
-            onTransferProgress?(totalReceived, contentLength, .readFromPhone, fileName)
+            onTransferProgress?(totalReceived, contentLength, .readFromPhone, cleanFileName)
         }
         
         var buffer = [UInt8](repeating: 0, count: 65536)
@@ -368,13 +471,13 @@ public final class LocalWebServer {
             totalReceived += Int64(bytesRead)
             
             speedTracker.recordBytes(Int64(bytesRead), direction: .readFromPhone)
-            onTransferProgress?(totalReceived, contentLength, .readFromPhone, fileName)
+            onTransferProgress?(totalReceived, contentLength, .readFromPhone, cleanFileName)
             
             if totalReceived >= contentLength && contentLength > 0 { break }
         }
         
         speedTracker.endSession()
-        onTransferCompleted?(fileName, totalReceived, .readFromPhone)
+        onTransferCompleted?(cleanFileName, totalReceived, .readFromPhone)
         
         sendResponse(clientSocket: clientSocket, status: "200 OK", body: "{\"status\":\"success\",\"bytes\":\(totalReceived)}")
     }

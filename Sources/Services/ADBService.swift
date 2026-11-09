@@ -24,6 +24,8 @@ public final class ADBService: ObservableObject {
     @Published public var isEjecting: Bool = false
     
     private var pollTimer: Timer?
+    private var autoDetectTimer: Timer?
+    private var wasPhysicallyDisconnectedAfterEject: Bool = false
     
     public var adbSourceDescription: String {
         guard let path = resolvedAdbPath else { return "Not Found" }
@@ -68,6 +70,7 @@ public final class ADBService: ObservableObject {
     
     private init() {
         refreshAdbStatus()
+        startAutoDetectionLoop()
     }
     
     @discardableResult
@@ -267,7 +270,67 @@ public final class ADBService: ObservableObject {
         }
     }
     
+    public func startAutoDetectionLoop() {
+        guard autoDetectTimer == nil else { return }
+        autoDetectTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
+            self?.autoDetectTick()
+        }
+    }
+    
+    public func stopAutoDetectionLoop() {
+        autoDetectTimer?.invalidate()
+        autoDetectTimer = nil
+    }
+    
+    private func autoDetectTick() {
+        guard !isSimulatedMode,
+              isAdbAvailable,
+              let adb = resolvedAdbPath,
+              !TransferManager.shared.speedTracker.isTransferring else {
+            return
+        }
+        
+        DispatchQueue.global(qos: .background).async { [weak self] in
+            guard let self = self else { return }
+            let output = self.runSystemCommand(adb, arguments: ["devices"])
+            let lines = output.components(separatedBy: "\n")
+            var rawDeviceCount = 0
+            for line in lines {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.isEmpty || trimmed.starts(with: "List") || trimmed.starts(with: "*") { continue }
+                let parts = trimmed.split(whereSeparator: { $0.isWhitespace })
+                if parts.count >= 2 {
+                    rawDeviceCount += 1
+                }
+            }
+            
+            DispatchQueue.main.async {
+                if rawDeviceCount == 0 {
+                    if self.isSafelyEjected {
+                        self.wasPhysicallyDisconnectedAfterEject = true
+                    } else if self.isDeviceConnected {
+                        self.isDeviceConnected = false
+                        self.authStatus = .disconnected
+                        self.connectedDevice = DeviceInfo()
+                        self.authorizationMessage = "USB cable disconnected."
+                    }
+                } else {
+                    if self.isSafelyEjected {
+                        if self.wasPhysicallyDisconnectedAfterEject {
+                            self.wasPhysicallyDisconnectedAfterEject = false
+                            self.isSafelyEjected = false
+                            self.checkConnectedDevices(force: true)
+                        }
+                    } else if !self.isDeviceConnected {
+                        self.checkConnectedDevices()
+                    }
+                }
+            }
+        }
+    }
+    
     public func stopAllServices(killAdbDaemon: Bool = true) {
+        stopAutoDetectionLoop()
         pollTimer?.invalidate()
         pollTimer = nil
         isPollingAuthorization = false
@@ -309,6 +372,7 @@ public final class ADBService: ObservableObject {
                 guard let self = self else { return }
                 self.isEjecting = false
                 self.isSafelyEjected = true
+                self.wasPhysicallyDisconnectedAfterEject = false
                 self.ejectedDeviceName = deviceName
                 self.isDeviceConnected = false
                 self.authStatus = .disconnected
@@ -331,6 +395,7 @@ public final class ADBService: ObservableObject {
     /// Reconnects the device after being ejected without having to restart the application
     public func reconnectAfterEject() {
         self.isSafelyEjected = false
+        self.wasPhysicallyDisconnectedAfterEject = false
         self.ejectedDeviceName = ""
         withAnimation {
             self.showEjectBanner = false
